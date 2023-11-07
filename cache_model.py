@@ -5,13 +5,14 @@ class CacheLine:
     def __init__(self, addr):
         self.addr = addr
         self.age = 0
+        self.eva = 0
 
 class HexDeque(deque):
     def __str__(self):
         return "[" + ", ".join(hex(item) for item in self) + "]"
 
 #VERBOSE > 0 : Shows each cache line access with hit and miss info.
-VERBOSE = 1
+VERBOSE = 2
 
 CACHE_SIZE = 6
 cache = []
@@ -35,7 +36,7 @@ expected_lifetimes_a = np.array([])
 EVA = np.array([])
 
 # Arrays A and B information
-array_a = {"start_addr": 0x100, "length": 2}
+array_a = {"start_addr": 0x100, "length": 3}
 array_b = {"start_addr": 0x200, "length": 6}
 a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
 b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
@@ -46,6 +47,7 @@ current_array = None  # Keep track of the currently accessed array
 array_index_a = -1  # Index to keep track of the current position in array A
 array_index_b = -1  # Index to keep track of the current position in array B
 NUM_ACCESS = 40  # Total number of accesses
+EVA_UPDATE_INTERVAL = 20
 
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
@@ -85,7 +87,8 @@ def cache_access(addr):
             print(f"Cache hit: Address 0x{addr:04X} found in cache at index {index}")
     else:
         if len(cache) >= CACHE_SIZE:
-            index_to_replace = find_cache_line(fifo_queue.popleft())
+            #index_to_replace = find_cache_line(fifo_queue.popleft())
+            index_to_replace = find_min_eva_line()
             replace_cacheline(index_to_replace, addr)
         else:
             cache_line = CacheLine(addr)
@@ -104,6 +107,11 @@ def cache_access(addr):
     fifo_queue.append(addr)
     return hit
 
+def find_min_eva_line():
+    min_entry = min(cache, key=lambda entry: entry.eva)
+    min_index = cache.index(min_entry)
+    return min_index
+    
 def find_cache_line(addr):
     for i, cache_line in enumerate(cache):
         if cache_line.addr == addr:
@@ -157,11 +165,13 @@ def upscan(arr):
     
 def update_statistics():
     global hits_a, miss_a, evictions_a, lifetimes_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
-    global expected_lifetimes_a
+    global expected_lifetimes_a, EVA
     
     max_age = max(max(hit_counters.keys(), default=0), 
                   max(miss_counters.keys(), default=0), 
                   max(eviction_counters.keys(), default=0))
+    
+    hits_a = miss_a = evictions_a = np.array([])
     
     for age in range(max_age,-1,-1):
         hits_a = np.insert(hits_a, 0, hit_counters.get(age, 0))
@@ -173,7 +183,17 @@ def update_statistics():
     evictions_gt_a = upscan(evictions_a)
     lifetimes_gt_a = upscan(lifetimes_a) #hits_gt_a + evictions_gt_a
     expected_lifetimes_a = np.cumsum(lifetimes_gt_a[::-1])[::-1]
-
+    
+    tot_hits = sum(hits_a)
+    hits = [tot_hits]*len(expected_lifetimes_a)
+    perAccessCost = tot_hits/CACHE_SIZE
+    events = np.where(lifetimes_gt_a == 0, np.inf, lifetimes_gt_a) #as per the Algorithm 1 in the paper.
+    EVA = (hits - (perAccessCost * expected_lifetimes_a)) / events
+    
+    #assign EVA to respective cachelines based on age.
+    for cacheline in cache:
+        cacheline.eva = EVA[cacheline.age]
+        
 def print_hit_miss_counters():  
     print("Hit Counters:")
     print("*****")
@@ -191,6 +211,8 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     
     print("A Hits = ", A_hits)
     print("B Hits = ", B_hits)
+    
+    print("EVA = ", EVA)
     print("\n")
     
 # Compute EVA
@@ -201,14 +223,18 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
 
 # Simulate cache accesses using the alternating access pattern
 
-for _ in range(NUM_ACCESS):
+for i in range(NUM_ACCESS):
     access_addr = alternate_access_pattern()
+    print(i)
     hit = cache_access(access_addr)
         
-    if VERBOSE > 2:
+    if VERBOSE > 1:
         print_cache_contents()
     print("*****")
     print("Eviction Priority:", fifo_queue, "\n")
+    
+    if i%EVA_UPDATE_INTERVAL==0 and i>0:
+        update_statistics()
 
 # Print the current cache contents using the new function
 print_cache_contents()
