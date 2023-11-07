@@ -37,10 +37,15 @@ EVA = np.array([])
 # Arrays A and B information
 array_a = {"start_addr": 0x100, "length": 2}
 array_b = {"start_addr": 0x200, "length": 6}
+a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
+b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
+A_hits = 0
+B_hits = 0
+
 current_array = None  # Keep track of the currently accessed array
 array_index_a = -1  # Index to keep track of the current position in array A
 array_index_b = -1  # Index to keep track of the current position in array B
-NUM_ACCESS = 20  # Total number of accesses
+NUM_ACCESS = 40  # Total number of accesses
 
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
@@ -60,6 +65,9 @@ def alternate_access_pattern():
     return addr
 
 def cache_access(addr):
+    global A_hits, B_hits
+    hit = 0
+        
     if VERBOSE>0:
         print(f"Accessing:  0x{addr:04X}")
     index = find_cache_line(addr)
@@ -68,6 +76,7 @@ def cache_access(addr):
 
     if index is not None:
         # Cache hit
+        hit = 1
         update_hit_counters(cache[index].age)
         # Remove cache element, MRU addition at end.
         fifo_queue.remove(cache[index].addr)
@@ -83,11 +92,17 @@ def cache_access(addr):
             cache.append(cache_line)
             #cache[-1].age = 0  # Implicit # Set the age of the newly added cache line to 0
             #UPDATING MISS COUNTER IN COMPULSORY MISS
-            update_miss_counters(cache_line.age)
+            update_miss_counters(cache_line.age, compulsory=1)
             if VERBOSE>0:
                 print(f"Cache miss: Address 0x{addr:04X} added to cache")
-
+    
+    if (addr in a_arr):
+        A_hits += hit
+    if (addr in b_arr):
+        B_hits += hit
+    
     fifo_queue.append(addr)
+    return hit
 
 def find_cache_line(addr):
     for i, cache_line in enumerate(cache):
@@ -98,7 +113,7 @@ def find_cache_line(addr):
 def replace_cacheline(index, new_addr):
     old_age = cache[index].age
     old_addr = cache[index].addr
-    update_miss_counters(old_age)
+    update_miss_counters(old_age, compulsory=0)
 
     # Replace the cache line
     if VERBOSE>0:
@@ -116,16 +131,16 @@ def update_hit_counters(age):
     else:
         hit_counters[age] += 1
 
-def update_miss_counters(age):
-    if age not in miss_counters: #miss counters by age is actually evictions
+def update_miss_counters(age, compulsory):
+    if age not in miss_counters: #miss==evictions except for compulsory misses
         miss_counters[age] = 1
     else:
         miss_counters[age] += 1
-    
-    if age not in eviction_counters:
-        eviction_counters[age] = 1
-    else:
-        eviction_counters[age] += 1
+    if not compulsory:
+        if age not in eviction_counters:
+            eviction_counters[age] = 1
+        else:
+            eviction_counters[age] += 1
 
 def print_cache_contents():
     print("Current cache contents:")
@@ -141,13 +156,7 @@ def upscan(arr):
     return res    
     
 def update_statistics():
-    global hits_a
-    global miss_a
-    global evictions_a
-    global lifetimes_a
-    global hits_gt_a
-    global evictions_gt_a
-    global lifetimes_gt_a
+    global hits_a, miss_a, evictions_a, lifetimes_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
     global expected_lifetimes_a
     
     max_age = max(max(hit_counters.keys(), default=0), 
@@ -176,6 +185,12 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     print("Hits > a", hits_gt_a)
     print("Evictions > a", evictions_gt_a) 
     print("Lifetime > a", lifetimes_gt_a)
+    
+    print("Total Hits = ", sum(hits_a))
+    print("Total Misses = ", sum(miss_a))
+    
+    print("A Hits = ", A_hits)
+    print("B Hits = ", B_hits)
     print("\n")
     
 # Compute EVA
@@ -185,10 +200,13 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     
 
 # Simulate cache accesses using the alternating access pattern
+
 for _ in range(NUM_ACCESS):
-    access_address = alternate_access_pattern()
-    cache_access(access_address)
-    print_cache_contents()
+    access_addr = alternate_access_pattern()
+    hit = cache_access(access_addr)
+        
+    if VERBOSE > 2:
+        print_cache_contents()
     print("*****")
     print("Eviction Priority:", fifo_queue, "\n")
 
