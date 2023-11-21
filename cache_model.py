@@ -1,5 +1,6 @@
 from collections import deque
 import numpy as np
+import matplotlib.pyplot as plt
 
 class CacheLine:
     def __init__(self, addr):
@@ -14,7 +15,8 @@ class HexDeque(deque):
 #VERBOSE > 0 : Shows each cache line access with hit and miss info.
 VERBOSE = 2
 
-CACHE_SIZE = 6
+CACHE_SIZE = 8    
+REPL="EVA"
 cache = []
 fifo_queue = HexDeque()
 
@@ -36,8 +38,8 @@ expected_lifetimes_a = np.array([])
 EVA = np.array([])
 
 # Arrays A and B information
-array_a = {"start_addr": 0x100, "length": 3}
-array_b = {"start_addr": 0x200, "length": 6}
+array_a = {"start_addr": 0x100, "length": 2}
+array_b = {"start_addr": 0x200, "length": 16}
 a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
 b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
 A_hits = 0
@@ -46,8 +48,8 @@ B_hits = 0
 current_array = None  # Keep track of the currently accessed array
 array_index_a = -1  # Index to keep track of the current position in array A
 array_index_b = -1  # Index to keep track of the current position in array B
-NUM_ACCESS = 40  # Total number of accesses
-EVA_UPDATE_INTERVAL = 20
+NUM_ACCESS = 400  # Total number of accesses
+EVA_UPDATE_INTERVAL = 1
 
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
@@ -87,8 +89,13 @@ def cache_access(addr):
             print(f"Cache hit: Address 0x{addr:04X} found in cache at index {index}")
     else:
         if len(cache) >= CACHE_SIZE:
-            #index_to_replace = find_cache_line(fifo_queue.popleft())
-            index_to_replace = find_min_eva_line()
+            if REPL=="LRU":
+                index_to_replace = find_cache_line(fifo_queue.popleft())
+            elif REPL=="EVA":
+                index_to_replace = find_min_eva_line()
+            else:
+                raise ValueError("Invalid Repl Policy")
+                
             replace_cacheline(index_to_replace, addr)
         else:
             cache_line = CacheLine(addr)
@@ -108,6 +115,7 @@ def cache_access(addr):
     return hit
 
 def find_min_eva_line():
+    #update_statistics()
     min_entry = min(cache, key=lambda entry: entry.eva)
     min_index = cache.index(min_entry)
     return min_index
@@ -167,9 +175,10 @@ def update_statistics():
     global hits_a, miss_a, evictions_a, lifetimes_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
     global expected_lifetimes_a, EVA
     
-    max_age = max(max(hit_counters.keys(), default=0), 
-                  max(miss_counters.keys(), default=0), 
-                  max(eviction_counters.keys(), default=0))
+    #max_age = max(max(hit_counters.keys(), default=0), 
+    #              max(miss_counters.keys(), default=0), 
+    #              max(eviction_counters.keys(), default=0))
+    max_age = max(cache, key=lambda entry: entry.age).age
     
     hits_a = miss_a = evictions_a = np.array([])
     
@@ -185,14 +194,14 @@ def update_statistics():
     expected_lifetimes_a = np.cumsum(lifetimes_gt_a[::-1])[::-1]
     
     tot_hits = sum(hits_a)
-    hits = [tot_hits]*len(expected_lifetimes_a)
+    #hits = [tot_hits]*len(expected_lifetimes_a)
     perAccessCost = tot_hits/CACHE_SIZE
     events = np.where(lifetimes_gt_a == 0, np.inf, lifetimes_gt_a) #as per the Algorithm 1 in the paper.
-    EVA = (hits - (perAccessCost * expected_lifetimes_a)) / events
+    EVA = (hits_gt_a - (perAccessCost * expected_lifetimes_a)) / events
     
     #assign EVA to respective cachelines based on age.
     for cacheline in cache:
-        cacheline.eva = EVA[cacheline.age]
+        cacheline.eva = EVA[cacheline.age] #todo
         
 def print_hit_miss_counters():  
     print("Hit Counters:")
@@ -231,12 +240,17 @@ for i in range(NUM_ACCESS):
     if VERBOSE > 1:
         print_cache_contents()
     print("*****")
-    print("Eviction Priority:", fifo_queue, "\n")
-    
     if i%EVA_UPDATE_INTERVAL==0 and i>0:
         update_statistics()
-
+    
+    if REPL=="LRU":
+        print("Eviction Priority:", fifo_queue, "\n")
+    elif REPL=="EVA":
+        print("EVA:", EVA, "\n")
+        
 # Print the current cache contents using the new function
 print_cache_contents()
 update_statistics()
 print_hit_miss_counters()
+
+plt.plot(EVA)
