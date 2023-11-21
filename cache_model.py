@@ -15,8 +15,8 @@ class HexDeque(deque):
 #VERBOSE > 0 : Shows each cache line access with hit and miss info.
 VERBOSE = 2
 
-CACHE_SIZE = 8    
-REPL="EVA"
+CACHE_SIZE = 64   
+REPL="LRU" if 1 else "EVA"
 cache = []
 fifo_queue = HexDeque()
 
@@ -24,6 +24,7 @@ fifo_queue = HexDeque()
 hit_counters = {}
 miss_counters = {}
 eviction_counters = {}
+max_age = 0
 
 # Initialize cumulative hit, miss, lifetime counters
 lifetimes_a = np.array([])
@@ -38,8 +39,8 @@ expected_lifetimes_a = np.array([])
 EVA = np.array([])
 
 # Arrays A and B information
-array_a = {"start_addr": 0x100, "length": 2}
-array_b = {"start_addr": 0x200, "length": 16}
+array_a = {"start_addr": 0xA000, "length": 16}
+array_b = {"start_addr": 0xB000, "length": 128}
 a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
 b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
 A_hits = 0
@@ -49,7 +50,7 @@ current_array = None  # Keep track of the currently accessed array
 array_index_a = -1  # Index to keep track of the current position in array A
 array_index_b = -1  # Index to keep track of the current position in array B
 NUM_ACCESS = 400  # Total number of accesses
-EVA_UPDATE_INTERVAL = 1
+EVA_UPDATE_INTERVAL = 50
 
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
@@ -173,31 +174,45 @@ def upscan(arr):
     
 def update_statistics():
     global hits_a, miss_a, evictions_a, lifetimes_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
-    global expected_lifetimes_a, EVA
+    global expected_lifetimes_a, EVA, max_age
     
-    #max_age = max(max(hit_counters.keys(), default=0), 
-    #              max(miss_counters.keys(), default=0), 
-    #              max(eviction_counters.keys(), default=0))
-    max_age = max(cache, key=lambda entry: entry.age).age
+    max_age = max(max(hit_counters.keys(), default=0), 
+                  max(miss_counters.keys(), default=0), 
+                  max(eviction_counters.keys(), default=0),
+                  max(cache, key=lambda entry: entry.age).age)
+    
+    #cache might not always have the line with the max age, might have got replaced.
+    #max_age = max(max_age, max(cache, key=lambda entry: entry.age).age)
     
     hits_a = miss_a = evictions_a = np.array([])
     
-    for age in range(max_age,-1,-1):
+    for age in range(max_age+1,-1,-1):
         hits_a = np.insert(hits_a, 0, hit_counters.get(age, 0))
         miss_a = np.insert(miss_a, 0, miss_counters.get(age, 0))
         evictions_a = np.insert(evictions_a, 0, eviction_counters.get(age, 0))
-                     
+    
+    tot_hits = sum(hits_a)
+    perAccessCost = tot_hits/CACHE_SIZE
+    
+    EVA = np.array([0.0]*(max_age+2))
+    expLifetime = 0.0
+    hits2 = 0.0
+    events2 = 0.0
+    
+    for a in range(max_age+1, -1, -1):
+        expLifetime += events2
+        EVA[a] = 0 if events2==0 else (hits2 - (perAccessCost*expLifetime)) / events2
+        hits2 += hits_a[a]
+        events2 += hits_a[a] + evictions_a[a]
+          
     lifetimes_a = hits_a + evictions_a
     hits_gt_a = upscan(hits_a)
     evictions_gt_a = upscan(evictions_a)
     lifetimes_gt_a = upscan(lifetimes_a) #hits_gt_a + evictions_gt_a
     expected_lifetimes_a = np.cumsum(lifetimes_gt_a[::-1])[::-1]
     
-    tot_hits = sum(hits_a)
-    #hits = [tot_hits]*len(expected_lifetimes_a)
-    perAccessCost = tot_hits/CACHE_SIZE
     events = np.where(lifetimes_gt_a == 0, np.inf, lifetimes_gt_a) #as per the Algorithm 1 in the paper.
-    EVA = (hits_gt_a - (perAccessCost * expected_lifetimes_a)) / events
+    #EVA = (hits_gt_a - (perAccessCost * expected_lifetimes_a)) / events
     
     #assign EVA to respective cachelines based on age.
     for cacheline in cache:
