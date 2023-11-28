@@ -37,6 +37,8 @@ evictions_gt_a = np.array([])
 lifetimes_gt_a = np.array([])
 expected_lifetimes_a = np.array([])
 EVA = np.array([])
+reward = np.array([])
+cost = np.array([])
 
 # Arrays A and B information
 array_a = {"start_addr": 0xA000, "length": 16}
@@ -174,7 +176,7 @@ def upscan(arr):
     
 def update_statistics():
     global hits_a, miss_a, evictions_a, lifetimes_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
-    global expected_lifetimes_a, EVA, max_age
+    global expected_lifetimes_a, EVA, max_age, cost, reward
     
     max_age = max(max(hit_counters.keys(), default=0), 
                   max(miss_counters.keys(), default=0), 
@@ -191,10 +193,14 @@ def update_statistics():
         miss_a = np.insert(miss_a, 0, miss_counters.get(age, 0))
         evictions_a = np.insert(evictions_a, 0, eviction_counters.get(age, 0))
     
+    lifetimes_a = hits_a + evictions_a
+    
     tot_hits = sum(hits_a)
-    perAccessCost = tot_hits/CACHE_SIZE
+    perAccessCost = tot_hits/(CACHE_SIZE*sum(lifetimes_a))
     
     EVA = np.array([0.0]*(max_age+2))
+    reward = np.array([0.0]*(max_age+2))
+    cost = np.array([0.0]*(max_age+2))
     expLifetime = 0.0
     hits2 = 0.0
     events2 = 0.0
@@ -202,16 +208,18 @@ def update_statistics():
     for a in range(max_age+1, -1, -1):
         expLifetime += events2
         EVA[a] = 0 if events2==0 else (hits2 - (perAccessCost*expLifetime)) / events2
+        reward[a] = 0 if events2==0 else hits2 / events2
+        cost[a] = 0 if events2==0 else (perAccessCost*expLifetime) / events2
+        
         hits2 += hits_a[a]
         events2 += hits_a[a] + evictions_a[a]
           
-    lifetimes_a = hits_a + evictions_a
     hits_gt_a = upscan(hits_a)
     evictions_gt_a = upscan(evictions_a)
     lifetimes_gt_a = upscan(lifetimes_a) #hits_gt_a + evictions_gt_a
     expected_lifetimes_a = np.cumsum(lifetimes_gt_a[::-1])[::-1]
     
-    events = np.where(lifetimes_gt_a == 0, np.inf, lifetimes_gt_a) #as per the Algorithm 1 in the paper.
+    #events = np.where(lifetimes_gt_a == 0, np.inf, lifetimes_gt_a) #as per the Algorithm 1 in the paper.
     #EVA = (hits_gt_a - (perAccessCost * expected_lifetimes_a)) / events
     
     #assign EVA to respective cachelines based on age.
@@ -268,4 +276,8 @@ print_cache_contents()
 update_statistics()
 print_hit_miss_counters()
 
-plt.plot(EVA)
+plt.plot(EVA, label="EVA")
+#plt.plot(reward, label="reward")
+#plt.plot(cost, label="cost")
+plt.legend(loc="upper right")
+plt.show()
