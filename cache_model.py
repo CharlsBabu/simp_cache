@@ -13,10 +13,10 @@ class HexDeque(deque):
         return "[" + ", ".join(hex(item) for item in self) + "]"
 
 #VERBOSE > 0 : Shows each cache line access with hit and miss info.
-VERBOSE = 2
+VERBOSE = 0
 
 CACHE_SIZE = 64   
-REPL="LRU" if 1 else "EVA"
+REPL="LRU" if 0 else "EVA"
 cache = []
 fifo_queue = HexDeque()
 
@@ -51,8 +51,8 @@ B_hits = 0
 current_array = None  # Keep track of the currently accessed array
 array_index_a = -1  # Index to keep track of the current position in array A
 array_index_b = -1  # Index to keep track of the current position in array B
-NUM_ACCESS = 400  # Total number of accesses
-EVA_UPDATE_INTERVAL = 50
+NUM_ACCESS = 4000  # Total number of accesses
+EVA_UPDATE_INTERVAL = 1
 
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
@@ -230,21 +230,25 @@ def print_hit_miss_counters():
     print("Hit Counters:")
     print("*****")
     print("Hits and Misses by Age:")
-    for age in range(len(lifetimes_a)):  
-        print(f"Age {age}: Hits - {hits_a[age]}, Evictions - {evictions_a[age]}, \
+    
+    if VERBOSE:
+        for age in range(len(lifetimes_a)):  
+            print(f"Age {age}: Hits - {hits_a[age]}, Evictions - {evictions_a[age]}, \
 Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}")
         
-    print("Hits > a", hits_gt_a)
-    print("Evictions > a", evictions_gt_a) 
-    print("Lifetime > a", lifetimes_gt_a)
+    #print("Hits > a", hits_gt_a)
+    #print("Evictions > a", evictions_gt_a) 
+    #print("Lifetime > a", lifetimes_gt_a)
     
-    print("Total Hits = ", sum(hits_a))
+    total_hits = sum(hits_a)
+    print("Total Hits = ", total_hits)
     print("Total Misses = ", sum(miss_a))
     
+    print("Hit Rate = ", total_hits*100/NUM_ACCESS, "%")
     print("A Hits = ", A_hits)
     print("B Hits = ", B_hits)
     
-    print("EVA = ", EVA)
+    #print("EVA = ", EVA)
     print("\n")
     
 # Compute EVA
@@ -266,18 +270,19 @@ for i in range(NUM_ACCESS):
     if i%EVA_UPDATE_INTERVAL==0 and i>0:
         update_statistics()
     
-    if REPL=="LRU":
-        print("Eviction Priority:", fifo_queue, "\n")
-    elif REPL=="EVA":
-        print("EVA:", EVA, "\n")
+    if VERBOSE > 2:
+        if REPL=="LRU":
+            print("Eviction Priority:", fifo_queue, "\n")
+        elif REPL=="EVA":
+            print("EVA:", EVA, "\n")
         
 # Print the current cache contents using the new function
-print_cache_contents()
+#print_cache_contents()
 update_statistics()
 print_hit_miss_counters()
 
 plt.plot(EVA, label="EVA")
-#plt.plot(reward, label="reward")
-#plt.plot(cost, label="cost")
+plt.plot(reward, label="reward")
+plt.plot(cost, label="cost")
 plt.legend(loc="upper right")
 plt.show()
