@@ -1,6 +1,7 @@
 from collections import deque
 import numpy as np
 import matplotlib.pyplot as plt
+import random
 
 class CacheLine:
     def __init__(self, addr):
@@ -16,7 +17,7 @@ class HexDeque(deque):
 VERBOSE = 0
 
 CACHE_SIZE = 64   
-REPL="LRU" if 0 else "EVA"
+REPL= "RND" #"LRU" if 0 else "EVA"
 cache = []
 fifo_queue = HexDeque()
 
@@ -51,8 +52,8 @@ B_hits = 0
 current_array = None  # Keep track of the currently accessed array
 array_index_a = -1  # Index to keep track of the current position in array A
 array_index_b = -1  # Index to keep track of the current position in array B
-NUM_ACCESS = 4000  # Total number of accesses
-EVA_UPDATE_INTERVAL = 1
+NUM_ACCESS = 5000  # Total number of accesses
+EVA_UPDATE_INTERVAL = 5
 
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
@@ -96,7 +97,9 @@ def cache_access(addr):
                 index_to_replace = find_cache_line(fifo_queue.popleft())
             elif REPL=="EVA":
                 index_to_replace = find_min_eva_line()
-            else:
+            elif REPL=="RND":
+                index_to_replace = random.randint(0, CACHE_SIZE-1)
+            else:    
                 raise ValueError("Invalid Repl Policy")
                 
             replace_cacheline(index_to_replace, addr)
@@ -196,7 +199,9 @@ def update_statistics():
     lifetimes_a = hits_a + evictions_a
     
     tot_hits = sum(hits_a)
-    perAccessCost = tot_hits/(CACHE_SIZE*sum(lifetimes_a))
+    N = CACHE_SIZE #sum((np.arange(len(lifetimes_a))+1)*lifetimes_a)/sum(lifetimes_a)
+    
+    perAccessCost = tot_hits/(N*sum(lifetimes_a))
     
     EVA = np.array([0.0]*(max_age+2))
     reward = np.array([0.0]*(max_age+2))
@@ -224,14 +229,14 @@ def update_statistics():
     
     #assign EVA to respective cachelines based on age.
     for cacheline in cache:
-        cacheline.eva = EVA[cacheline.age] #todo
+        cacheline.eva = EVA[cacheline.age]#todo
         
 def print_hit_miss_counters():  
     print("Hit Counters:")
     print("*****")
     print("Hits and Misses by Age:")
     
-    if VERBOSE:
+    if 1:
         for age in range(len(lifetimes_a)):  
             print(f"Age {age}: Hits - {hits_a[age]}, Evictions - {evictions_a[age]}, \
 Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}")
@@ -248,6 +253,7 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     print("A Hits = ", A_hits)
     print("B Hits = ", B_hits)
     
+    print("Calculated N", sum((np.arange(len(lifetimes_a))+1)*lifetimes_a)/sum(lifetimes_a))
     #print("EVA = ", EVA)
     print("\n")
     
@@ -284,5 +290,5 @@ print_hit_miss_counters()
 plt.plot(EVA, label="EVA")
 plt.plot(reward, label="reward")
 plt.plot(cost, label="cost")
-plt.legend(loc="upper right")
+plt.legend(loc="lower right")
 plt.show()
