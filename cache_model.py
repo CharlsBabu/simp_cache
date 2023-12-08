@@ -13,48 +13,6 @@ class HexDeque(deque):
     def __str__(self):
         return "[" + ", ".join(hex(item) for item in self) + "]"
 
-#VERBOSE > 0 : Shows each cache line access with hit and miss info.
-VERBOSE = 0
-
-CACHE_SIZE = 64   
-REPL= "RND" #"LRU" if 0 else "EVA"
-cache = []
-fifo_queue = HexDeque()
-
-# Initialize hit and miss counters for each age 
-hit_counters = {}
-miss_counters = {}
-eviction_counters = {}
-max_age = 0
-
-# Initialize cumulative hit, miss, lifetime counters
-lifetimes_a = np.array([])
-hits_a = np.array([])
-miss_a = np.array([])
-evictions_a = np.array([])
-
-hits_gt_a = np.array([])
-evictions_gt_a = np.array([])
-lifetimes_gt_a = np.array([])
-expected_lifetimes_a = np.array([])
-EVA = np.array([])
-reward = np.array([])
-cost = np.array([])
-
-# Arrays A and B information
-array_a = {"start_addr": 0xA000, "length": 16}
-array_b = {"start_addr": 0xB000, "length": 128}
-a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
-b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
-A_hits = 0
-B_hits = 0
-
-current_array = None  # Keep track of the currently accessed array
-array_index_a = -1  # Index to keep track of the current position in array A
-array_index_b = -1  # Index to keep track of the current position in array B
-NUM_ACCESS = 5000  # Total number of accesses
-EVA_UPDATE_INTERVAL = 5
-
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b
 
@@ -201,7 +159,7 @@ def update_statistics():
     tot_hits = sum(hits_a)
     N = CACHE_SIZE #sum((np.arange(len(lifetimes_a))+1)*lifetimes_a)/sum(lifetimes_a)
     
-    perAccessCost = tot_hits/(N*sum(lifetimes_a))
+    perAccessCost = 0 if sum(lifetimes_a)==0 else tot_hits/(N*sum(lifetimes_a))
     
     EVA = np.array([0.0]*(max_age+2))
     reward = np.array([0.0]*(max_age+2))
@@ -212,9 +170,9 @@ def update_statistics():
     
     for a in range(max_age+1, -1, -1):
         expLifetime += events2
-        EVA[a] = 0 if events2==0 else (hits2 - (perAccessCost*expLifetime)) / events2
         reward[a] = 0 if events2==0 else hits2 / events2
         cost[a] = 0 if events2==0 else (perAccessCost*expLifetime) / events2
+        EVA[a] = reward[a] - cost[a] # if events2==0 else (hits2 - (perAccessCost*expLifetime)) / events2
         
         hits2 += hits_a[a]
         events2 += hits_a[a] + evictions_a[a]
@@ -236,7 +194,7 @@ def print_hit_miss_counters():
     print("*****")
     print("Hits and Misses by Age:")
     
-    if 1:
+    if VERBOSE > 1:
         for age in range(len(lifetimes_a)):  
             print(f"Age {age}: Hits - {hits_a[age]}, Evictions - {evictions_a[age]}, \
 Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}")
@@ -249,46 +207,147 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     print("Total Hits = ", total_hits)
     print("Total Misses = ", sum(miss_a))
     
-    print("Hit Rate = ", total_hits*100/NUM_ACCESS, "%")
+    hit_rate = total_hits*100/NUM_ACCESS
+    print("Hit Rate = ", hit_rate, "%")
     print("A Hits = ", A_hits)
     print("B Hits = ", B_hits)
     
     print("Calculated N", sum((np.arange(len(lifetimes_a))+1)*lifetimes_a)/sum(lifetimes_a))
     #print("EVA = ", EVA)
     print("\n")
+    return hit_rate
+
+#VERBOSE > 0 : Shows each cache line access with hit and miss info.
+VERBOSE = 0
+PLOT = 0
+
+def run_sim(cache_size, asize, bsize, repl_policy):
+    global REPL, cache, fifo_queue, hit_counters, miss_counters, eviction_counters, max_age
+    global lifetimes_a, hits_a, miss_a, evictions_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
+    global expected_lifetimes_a, EVA, reward, cost, array_a, array_b, a_arr, b_arr, A_hits, B_hits
+    global CACHE_SIZE, NUM_ACCESS, array_index_a, array_index_b, current_array
     
-# Compute EVA
-#def compute_eva():
-#    max_age = max(lifetime_a, default=0)
-#    expected_lifetimes = upscan(lifetimes_gt_a)
-    
+    CACHE_SIZE = cache_size
+    REPL= repl_policy #"LRU" if 0 else "EVA" 
+    cache = []
+    fifo_queue = HexDeque()
+
+    # Initialize hit and miss counters for each age 
+    hit_counters = {}
+    miss_counters = {}
+    eviction_counters = {}
+    max_age = 0
+
+    # Initialize cumulative hit, miss, lifetime counters
+    lifetimes_a = np.array([])
+    hits_a = np.array([])
+    miss_a = np.array([])
+    evictions_a = np.array([])
+
+    hits_gt_a = np.array([])
+    evictions_gt_a = np.array([])
+    lifetimes_gt_a = np.array([])
+    expected_lifetimes_a = np.array([])
+    EVA = np.array([])
+    reward = np.array([])
+    cost = np.array([])
+
+    # Arrays A and B information
+    array_a = {"start_addr": 0xA000, "length": asize}
+    array_b = {"start_addr": 0xB000, "length": bsize}
+    a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
+    b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
+    A_hits = 0
+    B_hits = 0
+
+    current_array = None  # Keep track of the currently accessed array
+    array_index_a = -1  # Index to keep track of the current position in array A
+    array_index_b = -1  # Index to keep track of the current position in array B
+    NUM_ACCESS = 5000  # Total number of accesses
+    EVA_UPDATE_INTERVAL = 5
 
 # Simulate cache accesses using the alternating access pattern
 
-for i in range(NUM_ACCESS):
-    access_addr = alternate_access_pattern()
-    print(i)
-    hit = cache_access(access_addr)
+    for i in range(NUM_ACCESS):
+        access_addr = alternate_access_pattern()
+        #print(i)
+        cache_access(access_addr)
+            
+        if VERBOSE > 1:
+            print_cache_contents()
+            print("*****")
+        if i%EVA_UPDATE_INTERVAL==0 and i>0:
+            update_statistics()
         
-    if VERBOSE > 1:
-        print_cache_contents()
-    print("*****")
-    if i%EVA_UPDATE_INTERVAL==0 and i>0:
-        update_statistics()
-    
-    if VERBOSE > 2:
-        if REPL=="LRU":
-            print("Eviction Priority:", fifo_queue, "\n")
-        elif REPL=="EVA":
-            print("EVA:", EVA, "\n")
-        
-# Print the current cache contents using the new function
-#print_cache_contents()
-update_statistics()
-print_hit_miss_counters()
+        if VERBOSE > 2:
+            if REPL=="LRU":
+                print("Eviction Priority:", fifo_queue, "\n")
+            elif REPL=="EVA":
+                print("EVA:", EVA, "\n")
 
-plt.plot(EVA, label="EVA")
-plt.plot(reward, label="reward")
-plt.plot(cost, label="cost")
-plt.legend(loc="lower right")
+    update_statistics()
+    hit_rate = print_hit_miss_counters()
+    
+    if PLOT:
+        plt.plot(EVA, label="EVA")
+        plt.plot(reward, label="reward")
+        plt.plot(cost, label="cost")
+        plt.legend(loc="lower right")
+        plt.show()
+    
+    return hit_rate
+
+def ideal_HR(cache_size, asize, bsize):
+    compulsory_misses = cache_size
+    a_hitrate = min(cache_size, asize)/asize
+    b_hitrate = max(0, cache_size-asize)/bsize
+    
+    A_hits = int(a_hitrate*(0.5*NUM_ACCESS))
+    B_hits = int(b_hitrate*(0.5*NUM_ACCESS))
+    total_hits = A_hits + B_hits - compulsory_misses
+    
+    print("Total Hits = ", total_hits)
+    print("Total Misses = ", NUM_ACCESS-total_hits)
+    
+    hit_rate = total_hits*100/NUM_ACCESS
+    print("Hit Rate = ", hit_rate, "%")
+    print("A Hits = ", A_hits)
+    print("B Hits = ", B_hits)
+    print("\n")
+    
+    return hit_rate
+    
+###########################################################
+#SIMULATION
+
+CACHE_SIZE = 64
+FIXED_SZ = 1024 #128, 256, 512, 1024
+sweep = np.arange(8, 128, 4)
+
+HR_lru = np.array([0.0]*len(sweep))
+HR_eva = np.array([0.0]*len(sweep))
+HR_rnd = np.array([0.0]*len(sweep))
+HR_ideal = np.array([0.0]*len(sweep))
+
+for i,size in enumerate(sweep):
+    print("Run ", i, "size = ", size)
+    HR_lru[i] = run_sim(cache_size=CACHE_SIZE, asize=size, bsize=FIXED_SZ, repl_policy="LRU")
+    HR_eva[i] = run_sim(cache_size=CACHE_SIZE, asize=size, bsize=FIXED_SZ, repl_policy="EVA")
+    HR_rnd[i] = run_sim(cache_size=CACHE_SIZE, asize=size, bsize=FIXED_SZ, repl_policy="RND")
+    HR_ideal[i] = ideal_HR(cache_size=CACHE_SIZE, asize=size, bsize=FIXED_SZ)
+    
+plt.plot(sweep, HR_lru, label="LRU")
+plt.plot(sweep, HR_eva, label="EVA")
+for i, j in zip(sweep[2::4], HR_eva[2::4]):
+     plt.annotate('(%s, %s)' % (i, j), xy=(i, j), textcoords='offset points', xytext=(0,10), ha='center')
+
+plt.plot(sweep, HR_rnd, label="RND")
+plt.plot(sweep, HR_ideal, label="ideal")
+
+plt.legend(loc="upper right")
+plt.title("Hit Rate vs Small Array Size, CACHE= %d "% CACHE_SIZE + "FIXED_ARR=%d" %FIXED_SZ)
+plt.grid()
 plt.show()
+
+
+
