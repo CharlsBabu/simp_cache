@@ -14,24 +14,28 @@ class HexDeque(deque):
         return "[" + ", ".join(hex(item) for item in self) + "]"
 
 def alternate_access_pattern():
-    global current_array, array_index_a, array_index_b
+    global current_array, array_index_a, array_index_b, array_index_c
 
-    if current_array is None or current_array == array_b:
+    if current_array is None or current_array == array_c:
         current_array = array_a  # Switch to array A
         array_index_a = (array_index_a + 1) % array_a["length"]  # Wrap around for array A
-    else:
+    elif current_array == array_a:
         current_array = array_b  # Switch to array B
         array_index_b = (array_index_b + 1) % array_b["length"]  # Wrap around for array B
-
+    else:
+        current_array = array_c  # Switch to array C
+        array_index_c = (array_index_c + 1) % array_c["length"]  # Wrap around for array C
+        
     if current_array == array_a:
         addr = array_a["start_addr"] + array_index_a
-    else:
+    elif current_array == array_b:
         addr = array_b["start_addr"] + array_index_b
-
+    else:
+        addr = array_c["start_addr"] + array_index_c
     return addr
 
 def cache_access(addr):
-    global A_hits, B_hits
+    global A_hits, B_hits, C_hits
     hit = 0
         
     if VERBOSE>0:
@@ -74,6 +78,8 @@ def cache_access(addr):
         A_hits += hit
     if (addr in b_arr):
         B_hits += hit
+    if (addr in c_arr):
+        C_hits += hit
     
     fifo_queue.append(addr)
     return hit
@@ -211,6 +217,7 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     print("Hit Rate = ", hit_rate, "%")
     print("A Hits = ", A_hits)
     print("B Hits = ", B_hits)
+    print("C Hits = ", C_hits)
     
     print("Calculated N", sum((np.arange(len(lifetimes_a))+1)*lifetimes_a)/sum(lifetimes_a))
     #print("EVA = ", EVA)
@@ -224,8 +231,8 @@ PLOT = 0
 def run_sim(cache_size, asize, bsize, repl_policy):
     global REPL, cache, fifo_queue, hit_counters, miss_counters, eviction_counters, max_age
     global lifetimes_a, hits_a, miss_a, evictions_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
-    global expected_lifetimes_a, EVA, reward, cost, array_a, array_b, a_arr, b_arr, A_hits, B_hits
-    global CACHE_SIZE, NUM_ACCESS, array_index_a, array_index_b, current_array
+    global expected_lifetimes_a, EVA, reward, cost, array_a, array_b, array_c, a_arr, b_arr, c_arr, A_hits, B_hits, C_hits
+    global CACHE_SIZE, NUM_ACCESS, array_index_a, array_index_b, array_index_c, current_array
     
     CACHE_SIZE = cache_size
     REPL= repl_policy #"LRU" if 0 else "EVA" 
@@ -255,14 +262,19 @@ def run_sim(cache_size, asize, bsize, repl_policy):
     # Arrays A and B information
     array_a = {"start_addr": 0xA000, "length": asize}
     array_b = {"start_addr": 0xB000, "length": bsize}
+    csize = bsize
+    array_c = {"start_addr": 0xC000, "length": csize}
     a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
     b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
+    c_arr = np.arange(array_c["start_addr"], array_c["start_addr"]+array_c["length"])
     A_hits = 0
     B_hits = 0
-
+    C_hits = 0
+    
     current_array = None  # Keep track of the currently accessed array
     array_index_a = -1  # Index to keep track of the current position in array A
     array_index_b = -1  # Index to keep track of the current position in array B
+    array_index_c = -1
     NUM_ACCESS = 5000  # Total number of accesses
     EVA_UPDATE_INTERVAL = 5
 
@@ -301,10 +313,14 @@ def ideal_HR(cache_size, asize, bsize):
     compulsory_misses = cache_size
     a_hitrate = min(cache_size, asize)/asize
     b_hitrate = max(0, cache_size-asize)/bsize
+    csize = bsize
+    c_hitrate = max(0, cache_size-asize-bsize)/csize
     
-    A_hits = int(a_hitrate*(0.5*NUM_ACCESS))
-    B_hits = int(b_hitrate*(0.5*NUM_ACCESS))
-    total_hits = A_hits + B_hits - compulsory_misses
+    A_hits = int(a_hitrate*(0.33*NUM_ACCESS))
+    B_hits = int(b_hitrate*(0.33*NUM_ACCESS))
+    C_hits = int(c_hitrate*(0.33*NUM_ACCESS))
+    
+    total_hits = A_hits + B_hits + C_hits - compulsory_misses
     
     print("Total Hits = ", total_hits)
     print("Total Misses = ", NUM_ACCESS-total_hits)
@@ -313,6 +329,7 @@ def ideal_HR(cache_size, asize, bsize):
     print("Hit Rate = ", hit_rate, "%")
     print("A Hits = ", A_hits)
     print("B Hits = ", B_hits)
+    print("C Hits = ", C_hits)
     print("\n")
     
     return hit_rate
@@ -321,7 +338,7 @@ def ideal_HR(cache_size, asize, bsize):
 #SIMULATION
 
 CACHE_SIZE = 64
-FIXED_SZ = 1024 #128, 256, 512, 1024
+FIXED_SZ = 128 #128, 256, 512, 1024
 sweep = np.arange(8, 128, 4)
 
 HR_lru = np.array([0.0]*len(sweep))
