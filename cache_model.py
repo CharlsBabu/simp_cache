@@ -16,7 +16,7 @@ class HexDeque(deque):
 def alternate_access_pattern():
     global current_array, array_index_a, array_index_b, array_index_c
 
-    if current_array is None or current_array == array_c:
+    if current_array is None or current_array == (array_c if NUM_ARRAYS==3 else array_b):
         current_array = array_a  # Switch to array A
         array_index_a = (array_index_a + 1) % array_a["length"]  # Wrap around for array A
     elif current_array == array_a:
@@ -188,10 +188,6 @@ def update_statistics():
     lifetimes_gt_a = upscan(lifetimes_a) #hits_gt_a + evictions_gt_a
     expected_lifetimes_a = np.cumsum(lifetimes_gt_a[::-1])[::-1]
     
-    #events = np.where(lifetimes_gt_a == 0, np.inf, lifetimes_gt_a) #as per the Algorithm 1 in the paper.
-    #EVA = (hits_gt_a - (perAccessCost * expected_lifetimes_a)) / events
-    
-    #assign EVA to respective cachelines based on age.
     for cacheline in cache:
         cacheline.eva = EVA[cacheline.age]#todo
         
@@ -224,16 +220,13 @@ Lifetimes - {lifetimes_a[age]}, Expected Lifetimes - {expected_lifetimes_a[age]}
     print("\n")
     return hit_rate
 
-#VERBOSE > 0 : Shows each cache line access with hit and miss info.
-VERBOSE = 0
-PLOT = 0
-
 def run_sim(cache_size, asize, bsize, repl_policy):
     global REPL, cache, fifo_queue, hit_counters, miss_counters, eviction_counters, max_age
     global lifetimes_a, hits_a, miss_a, evictions_a, hits_gt_a, evictions_gt_a, lifetimes_gt_a
     global expected_lifetimes_a, EVA, reward, cost, array_a, array_b, array_c, a_arr, b_arr, c_arr, A_hits, B_hits, C_hits
     global CACHE_SIZE, NUM_ACCESS, array_index_a, array_index_b, array_index_c, current_array
     
+    print(repl_policy)
     CACHE_SIZE = cache_size
     REPL= repl_policy #"LRU" if 0 else "EVA" 
     cache = []
@@ -262,7 +255,7 @@ def run_sim(cache_size, asize, bsize, repl_policy):
     # Arrays A and B information
     array_a = {"start_addr": 0xA000, "length": asize}
     array_b = {"start_addr": 0xB000, "length": bsize}
-    csize = bsize
+    csize = asize
     array_c = {"start_addr": 0xC000, "length": csize}
     a_arr = np.arange(array_a["start_addr"], array_a["start_addr"]+array_a["length"])
     b_arr = np.arange(array_b["start_addr"], array_b["start_addr"]+array_b["length"])
@@ -312,13 +305,14 @@ def run_sim(cache_size, asize, bsize, repl_policy):
 def ideal_HR(cache_size, asize, bsize):
     compulsory_misses = cache_size
     a_hitrate = min(cache_size, asize)/asize
-    b_hitrate = max(0, cache_size-asize)/bsize
-    csize = bsize
-    c_hitrate = max(0, cache_size-asize-bsize)/csize
+    csize = asize if NUM_ARRAYS==3 else 0
+    c_hitrate = min(max(0, cache_size-asize), csize)/csize if NUM_ARRAYS==3 else 0
+    b_hitrate = min(max(0, cache_size-asize-csize), bsize)/bsize
+
     
-    A_hits = int(a_hitrate*(0.33*NUM_ACCESS))
-    B_hits = int(b_hitrate*(0.33*NUM_ACCESS))
-    C_hits = int(c_hitrate*(0.33*NUM_ACCESS))
+    A_hits = int(a_hitrate*NUM_ACCESS)/NUM_ARRAYS
+    B_hits = int(b_hitrate*NUM_ACCESS)/NUM_ARRAYS
+    C_hits = int(c_hitrate*NUM_ACCESS)/NUM_ARRAYS
     
     total_hits = A_hits + B_hits + C_hits - compulsory_misses
     
@@ -337,8 +331,13 @@ def ideal_HR(cache_size, asize, bsize):
 ###########################################################
 #SIMULATION
 
+#VERBOSE > 0 : Shows each cache line access with hit and miss info.
+VERBOSE = 0
+PLOT = 0
+
 CACHE_SIZE = 64
-FIXED_SZ = 128 #128, 256, 512, 1024
+FIXED_SZ = 1024 #128, 256, 512, 1024
+NUM_ARRAYS = 3 # 2 or 3
 sweep = np.arange(8, 128, 4)
 
 HR_lru = np.array([0.0]*len(sweep))
@@ -362,7 +361,10 @@ plt.plot(sweep, HR_rnd, label="RND")
 plt.plot(sweep, HR_ideal, label="ideal")
 
 plt.legend(loc="upper right")
-plt.title("Hit Rate vs Small Array Size, CACHE= %d "% CACHE_SIZE + "FIXED_ARR=%d" %FIXED_SZ)
+if NUM_ARRAYS==3:
+    plt.title("Hit Rate vs Duplicated Small Array Size, CACHE= %d "% CACHE_SIZE + "FIXED_ARR=%d" %FIXED_SZ)
+else:
+    plt.title("Hit Rate vs Small Array Size, CACHE= %d "% CACHE_SIZE + "FIXED_ARR=%d" %FIXED_SZ)
 plt.grid()
 plt.show()
 
